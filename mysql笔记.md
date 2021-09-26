@@ -1,4 +1,6 @@
-
+---
+typora-copy-images-to: images
+---
 
 # mysql基础
 
@@ -101,7 +103,7 @@ ncurses-compat-libs-6.1-7.20180224.el8.x86_64
 yum -y install libncurses*
 ```
 
-![image-20210924210240885](C:\Users\tom\AppData\Roaming\Typora\typora-user-images\image-20210924210240885.png)
+![image-20210924210240885](images/image-20210924210240885.png)
 
 
 
@@ -675,7 +677,7 @@ dutch/
 
 ## Mysql逻辑架构
 
-![image-20210925193350295](C:\Users\tom\AppData\Roaming\Typora\typora-user-images\image-20210925193350295.png)
+![image-20210925193350295](images/image-20210925193350295.png)
 
 Mysql架构可以在不同场景中应用并发挥良好作用.
 
@@ -808,4 +810,375 @@ Percona 为 MySQL 数据库服务器进行了改进，在功能和性能上较 M
 
 阿里巴巴大部分mysql数据库其实使用的percona的原型加以修改。
 AliSql+AliRedis
+
+
+
+## Mysql索引优化
+
+### 1.性能下降的原因
+
+#### 1.1 查询语句写的烂
+
+能不能拆，条件过滤尽量少
+
+select * from user where name='test';   查询语句慢.
+
+可以给加上索引
+
+#单字段索引
+
+create index idx_user_name on user(name);
+
+##双字段索引
+
+create index idx_user_userEmail on user(name,email);
+
+
+
+
+
+####  1.2 索引失效
+
+ ![image-20210926200154125](images/image-20210926200154125.png)
+
+索引针对 列 建索引。但并不可能每一列都建索引
+索引并非越多越好。当数据更新了，索引会进行调整。也会很消耗性能。
+且 mysql 并不会把所有索引都用上，只会根据其算法挑一个索引用。所以建的准很重要。
+
+- 单值
+
+- 复合
+  - 条件多时，可以建共同索引(混合索引)。混合索引一般会偶先使用。有些情况下，就算有索引具体执行时也不会被使用。
+
+
+
+####  1.3 关联查询太多的join
+
+join 原理。用  A 表的每一条数据 扫描 B表的所有数据。所以尽量先过滤。
+
+
+
+#### 1.4服务器调优及各个参数设置
+
+
+
+### 2.常见的join查询
+
+#### 2.1 SQL执行顺序
+
+程序员手写代码的顺序:
+
+![image-20210926200929929](images/image-20210926200929929.png)
+
+
+
+Mysql解析的顺序:
+
+随着Mysql版本的更新换代，其优化器也在不断的升级，优化器会分析不同执行顺序产生的性能消耗不同而动态调整执行顺序。下面是经常出现的查询顺序：
+
+![image-20210926201553150](images/image-20210926201553150.png)
+
+![image-20210926201614124](images/image-20210926201614124.png)
+
+先从FROM开始解析!
+
+
+
+####  2.2 join图
+
+![](images/image-20210926201823952.png)
+
+
+
+##### 1. AB共有
+
+![image-20210926202044258](images/image-20210926202044258.png)
+
+
+
+##### 2.A和AB共有
+
+![image-20210926202121333](images/image-20210926202121333.png)
+
+
+
+##### 3.B和AB共有
+
+![image-20210926202147903](images/image-20210926202147903.png)
+
+
+
+##### 4.仅A
+
+![image-20210926202522611](images/image-20210926202522611.png)
+
+
+
+##### 5.仅B
+
+![image-20210926202546917](images/image-20210926202546917.png)
+
+
+
+##### 6.全A全B
+
+![image-20210926202648827](images/image-20210926202648827.png)
+
+
+
+##### 7.全A全B但不包括AB共有
+
+![image-20210926202709729](images/image-20210926202709729.png)
+
+
+
+
+
+什么叫共有，什么叫独有？
+共有：满足 a.deptid = b.id 的叫共有
+A独有:  A 表中所有不满足  a.deptid = b.id  连接关系的数据
+同时参考 join 图
+
+
+
+#### 2.3 建表SQL
+
+```sql
+CREATE TABLE `t_dept` (
+ `id` INT(11) NOT NULL AUTO_INCREMENT,
+ `deptName` VARCHAR(30) DEFAULT NULL,
+ `address` VARCHAR(40) DEFAULT NULL,
+ PRIMARY KEY (`id`)
+) ENGINE=INNODB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
+ 
+CREATE TABLE `t_emp` (
+ `id` INT(11) NOT NULL AUTO_INCREMENT,
+ `name` VARCHAR(20) DEFAULT NULL,
+  `age` INT(3) DEFAULT NULL,
+ `deptId` INT(11) DEFAULT NULL,
+ PRIMARY KEY (`id`),
+ KEY `fk_dept_id` (`deptId`)
+ #CONSTRAINT `fk_dept_id` FOREIGN KEY (`deptId`) REFERENCES `t_dept` (`id`)
+) ENGINE=INNODB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
+ 
+INSERT INTO t_dept(deptName,address) VALUES('华山','华山');
+INSERT INTO t_dept(deptName,address) VALUES('丐帮','洛阳');
+INSERT INTO t_dept(deptName,address) VALUES('峨眉','峨眉山');
+INSERT INTO t_dept(deptName,address) VALUES('武当','武当山');
+INSERT INTO t_dept(deptName,address) VALUES('明教','光明顶');
+ INSERT INTO t_dept(deptName,address) VALUES('少林','少林寺');
+ 
+INSERT INTO t_emp(NAME,age,deptId) VALUES('风清扬',90,1);
+INSERT INTO t_emp(NAME,age,deptId) VALUES('岳不群',50,1);
+INSERT INTO t_emp(NAME,age,deptId) VALUES('令狐冲',24,1);
+ 
+ INSERT INTO t_emp(NAME,age,deptId) VALUES('洪七公',70,2);
+INSERT INTO t_emp(NAME,age,deptId) VALUES('乔峰',35,2);
+ 
+INSERT INTO t_emp(NAME,age,deptId) VALUES('灭绝师太',70,3);
+INSERT INTO t_emp(NAME,age,deptId) VALUES('周芷若',20,3);
+
+INSERT INTO t_emp(NAME,age,deptId) VALUES('张三丰',100,4);
+ 
+INSERT INTO t_emp(NAME,age,deptId) VALUES('张无忌',25,5);
+ 
+INSERT INTO t_emp(NAME,age,deptId) VALUES('韦小宝',18,null);
+
+```
+
+
+
+#### 2.4 7种join
+
+```sql
+## t_emp(部门表) a
+mysql> select * from t_emp;
++----+--------------+------+--------+
+| id | name         | age  | deptId |
++----+--------------+------+--------+
+|  1 | 风清扬       |   90 |      1 |
+|  2 | 岳不群       |   50 |      1 |
+|  3 | 令狐冲       |   24 |      1 |
+|  4 | 洪七公       |   70 |      2 |
+|  5 | 乔峰           |   35 |      2 |
+|  6 | 灭绝师太    |   70 |      3 |
+|  7 | 周芷若       |   20 |      3 |
+|  8 | 张三丰       |  100 |      4 |
+|  9 | 张无忌       |   25 |      5 |
+| 10 | 韦小宝       |   18 |   NULL |
++----+--------------+------+--------+
+10 rows in set (0.00 sec)
+
+## t_dept(部门表) b
+mysql> select * from t_dept;
++----+----------+-----------+
+| id | deptName | address   |
++----+----------+-----------+
+|  1 | 华山     | 华山       |
+|  2 | 丐帮     | 洛阳       |
+|  3 | 峨眉     | 峨眉山    |
+|  4 | 武当     | 武当山    |
+|  5 | 明教     | 光明顶    |
+|  6 | 少林     | 少林寺    |
++----+----------+-----------+
+6 rows in set (0.00 sec)
+```
+
+
+
+##### 1. A、B两表共有
+
+```sql
+mysql> select * from t_emp a inner join t_dept b on a.deptId = b.id;
++----+--------------+------+--------+----+----------+-----------+
+| id | name         | age  | deptId | id | deptName | address   |
++----+--------------+------+--------+----+----------+-----------+
+|  1 | 风清扬       |   90 |      1 |  1 | 华山     | 华山      |
+|  2 | 岳不群       |   50 |      1 |  1 | 华山     | 华山      |
+|  3 | 令狐冲       |   24 |      1 |  1 | 华山     | 华山      |
+|  4 | 洪七公       |   70 |      2 |  2 | 丐帮     | 洛阳      |
+|  5 | 乔峰         |   35 |      2 |  2 | 丐帮     | 洛阳      |
+|  6 | 灭绝师太     |   70 |      3 |  3 | 峨眉     | 峨眉山    |
+|  7 | 周芷若       |   20 |      3 |  3 | 峨眉     | 峨眉山    |
+|  8 | 张三丰       |  100 |      4 |  4 | 武当     | 武当山    |
+|  9 | 张无忌       |   25 |      5 |  5 | 明教     | 光明顶    |
++----+--------------+------+--------+----+----------+-----------+
+9 rows in set (0.00 sec)
+
+```
+
+
+
+##### 2.A、B两表共有+A的独有
+
+```sql
+mysql> select * from t_emp a left join t_dept b on a.deptId = b.id;
++----+--------------+------+--------+------+----------+-----------+
+| id | name         | age  | deptId | id   | deptName | address   |
++----+--------------+------+--------+------+----------+-----------+
+|  1 | 风清扬       |   90 |      1 |    1 | 华山     | 华山      |
+|  2 | 岳不群       |   50 |      1 |    1 | 华山     | 华山      |
+|  3 | 令狐冲       |   24 |      1 |    1 | 华山     | 华山      |
+|  4 | 洪七公       |   70 |      2 |    2 | 丐帮     | 洛阳      |
+|  5 | 乔峰         |   35 |      2 |    2 | 丐帮     | 洛阳      |
+|  6 | 灭绝师太     |   70 |      3 |    3 | 峨眉     | 峨眉山    |
+|  7 | 周芷若       |   20 |      3 |    3 | 峨眉     | 峨眉山    |
+|  8 | 张三丰       |  100 |      4 |    4 | 武当     | 武当山    |
+|  9 | 张无忌       |   25 |      5 |    5 | 明教     | 光明顶    |
+| 10 | 韦小宝       |   18 |   NULL | NULL | NULL     | NULL      | 
++----+--------------+------+--------+------+----------+-----------+
+10 rows in set (0.00 sec)
+
+```
+
+
+
+##### 3.A、B两表共有+B的独有
+
+```sql
+mysql> select * from t_emp a right join t_dept b on a.deptId = b.id;
++------+--------------+------+--------+----+----------+-----------+
+| id   | name         | age  | deptId | id | deptName | address   |
++------+--------------+------+--------+----+----------+-----------+
+|    1 | 风清扬       |   90 |      1 |  1 | 华山     | 华山      |
+|    2 | 岳不群       |   50 |      1 |  1 | 华山     | 华山      |
+|    3 | 令狐冲       |   24 |      1 |  1 | 华山     | 华山      |
+|    4 | 洪七公       |   70 |      2 |  2 | 丐帮     | 洛阳      |
+|    5 | 乔峰         |   35 |      2 |  2 | 丐帮     | 洛阳      |
+|    6 | 灭绝师太     |   70 |      3 |  3 | 峨眉     | 峨眉山    |
+|    7 | 周芷若       |   20 |      3 |  3 | 峨眉     | 峨眉山    |
+|    8 | 张三丰       |  100 |      4 |  4 | 武当     | 武当山    |
+|    9 | 张无忌       |   25 |      5 |  5 | 明教     | 光明顶    |
+| NULL | NULL         | NULL |   NULL |  6 | 少林     | 少林寺    |
++------+--------------+------+--------+----+----------+-----------+
+10 rows in set (0.00 sec)
+```
+
+
+
+##### 4.A的独有 
+
+```sql
+mysql> select * from t_emp a left join t_dept b on a.deptId = b.id where b.id is null;
++----+-----------+------+--------+------+----------+---------+
+| id | name      | age  | deptId | id   | deptName | address |
++----+-----------+------+--------+------+----------+---------+
+| 10 | 韦小宝    |   18 |   NULL | NULL | NULL     | NULL    |
++----+-----------+------+--------+------+----------+---------+
+1 row in set (0.00 sec)
+
+```
+
+
+
+##### 5.B的独有
+
+```sql
+mysql> select * from t_emp a right join t_dept b on a.deptId = b.id where a.deptId is null;
++------+------+------+--------+----+----------+-----------+
+| id   | name | age  | deptId | id | deptName | address   |
++------+------+------+--------+----+----------+-----------+
+| NULL | NULL | NULL |   NULL |  6 | 少林     | 少林寺    |
++------+------+------+--------+----+----------+-----------+
+1 row in set (0.00 sec)
+
+```
+
+
+
+##### 6.AB全有
+
+MySQL Full Join的实现:因为MySQL不支持FULL JOIN,下面是替代方法
+left join + union(可去除重复数据)+ right join
+
+```sql
+mysql> select * from t_emp a left join t_dept b on a.deptid = b.id
+union 
+select * from t_emp a right join t_dept b on a.deptId = b.id;
++------+--------------+------+--------+------+----------+-----------+
+| id   | name         | age  | deptId | id   | deptName | address   |
++------+--------------+------+--------+------+----------+-----------+
+|    1 | 风清扬       |   90 |      1 |    1 | 华山     | 华山      |
+|    2 | 岳不群       |   50 |      1 |    1 | 华山     | 华山      |
+|    3 | 令狐冲       |   24 |      1 |    1 | 华山     | 华山      |
+|    4 | 洪七公       |   70 |      2 |    2 | 丐帮     | 洛阳      |
+|    5 | 乔峰         |   35 |      2 |    2 | 丐帮     | 洛阳      |
+|    6 | 灭绝师太     |   70 |      3 |    3 | 峨眉     | 峨眉山    |
+|    7 | 周芷若       |   20 |      3 |    3 | 峨眉     | 峨眉山    |
+|    8 | 张三丰       |  100 |      4 |    4 | 武当     | 武当山    |
+|    9 | 张无忌       |   25 |      5 |    5 | 明教     | 光明顶    |
+|   10 | 韦小宝       |   18 |   NULL | NULL | NULL     | NULL      |
+| NULL | NULL         | NULL |   NULL |    6 | 少林     | 少林寺    |
++------+--------------+------+--------+------+----------+-----------+
+11 rows in set (0.00 sec)
+
+```
+
+
+
+##### 7.A的独有+B的独有
+
+```sql
+mysql> select * from t_emp a left join t_dept b on a.deptid = b.id where b.id is null 
+union 
+select * from t_emp a right join t_dept b on a.deptId = b.id where a.deptId is null;
++------+-----------+------+--------+------+----------+-----------+
+| id   | name      | age  | deptId | id   | deptName | address   |
++------+-----------+------+--------+------+----------+-----------+
+|   10 | 韦小宝    |   18 |   NULL | NULL | NULL     | NULL      |
+| NULL | NULL      | NULL |   NULL |    6 | 少林     | 少林寺    |
++------+-----------+------+--------+------+----------+-----------+
+2 rows in set (0.00 sec)
+
+```
+
+
+
+
+
+
+
+
+
+
 
