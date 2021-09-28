@@ -23,15 +23,19 @@ https://downloads.mysql.com/archives/community/
 3.检查当前系统是否安装过mysql,没有安装则什么都不显示
 
 ```
-rmp -qa|greap -i mysql
+rpm -qa|grep -i mysql
 ```
 
 4.如果装过mysql,删除命令
+
+由于有些版本自带的有mariadb，检查是否有mariadb，若是有需要先卸载 
 
 ```
 rpm -e RPM软件包名
 
 注:软件包名是rmp -qa|greap -i mysql 查询出来的名字
+
+yum -y remove maria*
 ```
 
 5.先在/opt目录下安装mysql-server 
@@ -200,7 +204,7 @@ Shutting down MySQL. SUCCESS!
 
 ### 4.设置root密码
 
-```
+```sql
 ##设置root密码
 [root@localhost opt]# /usr/bin/mysqladmin -u root password 123456
 
@@ -1186,7 +1190,7 @@ MySQL官方对索引的定义为：索引（Index）是帮助MySQL高效获取�
 
 
 
-##### 3.1.2 详细分析
+##### 3.1.2 详细分析*
 
 在数据之外，数据库系统还维护着满足特定查找算法的数据结构，这些数据结构以某种方式引用（指向）数据，
 这样就可以在这些数据结构上实现高级查找算法。这种数据结构，就是索引。
@@ -1297,7 +1301,7 @@ Myisam普通索引
 
 
 
-##### 3.4.2 B+TREE索引
+##### 3.4.2 B+TREE索引*
 
 ![image-20210927161721456](images/image-20210927161721456.png)
 
@@ -1553,16 +1557,373 @@ ALTER TABLE tbl_name ADD FULLTEXT index_name (column_list)
 
 
 
-
 #### 3.6 按需创建索引
+
+##### 3.6.1 哪些情况需要建立索引?
+
+- 主键自动建立唯一索引
+
+- 频繁作为查询条件的字段应该创建索引(where 后面的语句)
+
+- 查询中与其它表关联的字段，外键关系建立索引
+  - A 表关联 B 表：A join B  。  on 后面的连接条件 既 A 表查询 B 表的条件。所以 B 表被关联的字段建立索引能大大提高查询效率. 因为在 join 中，join 左边的表会用每一个字段去遍历 B 表的所有的关联数据，相当于一个查询操作.
+- 单键/组合索引的选择问题，who？(在高并发下倾向创建组合索引)
+
+- 查询中排序的字段，排序字段若通过索引去访问将大大提高排序速度
+  - group by 和 order by 后面的字段有索引大大提高效率
+
+- 查询中统计或者分组字段
+
+
+
+##### 3.6.2 哪些情况不需要建立索引?
+
+- 表记录太少
+
+- 经常增删改的表
+
+- Where条件里用不到的字段不创建索引
+  - 索引建多了影响 增删改 的效率
+
+- 数据重复且分布平均的表字段，因此应该只为最经常查询和最经常排序的数据列建立索引。
+  注意，如果某个数据列包含许多重复的内容，为它建立索引就没有太大的实际效果。
+
+  ![image-20210927210727850](images/image-20210927210727850.png)
+
+
 
 
 ### 4. Mysql索引性能分析
 
-
 #### 4.1 Mysql常见瓶颈
 
-#### 4.2 Explain分析
+##### 4.1.1 CPU
+
+SQL中对大量数据进行比较、关联、排序、分组
+
+最大的压力在于 比较
+
+
+
+##### 4.1.2 IO
+
+实例内存满足不了缓存数据或排序等需要，导致产生大量 物理 IO。
+
+查询执行效率低，扫描过多数据行.
+
+
+
+##### 4.1.3 锁
+
+不适宜的锁的设置，导致线程阻塞，性能下降。
+
+死锁，线程之间交叉调用资源，导致死锁，程序卡住。
+
+
+
+##### 4.1.4 服务器硬件的性能瓶颈
+
+top,free, iostat和vmstat来查看系统的性能状态
+
+
+
+#### 4.2 Explain分析*
+
+使用EXPLAIN关键字可以模拟优化器执行SQL查询语句，从而知道MySQL是如何处理你的SQL语句的。分析你的查询语句或是表结构的性能瓶颈.
+
+http://dev.mysql.com/doc/refman/5.5/en/explain-output.html
+
+
+
+Explain作用:
+
+表的读取顺序
+
+哪些索引可以使用
+
+数据读取操作的操作类型
+
+哪些索引被实际使用
+
+表之间的引用
+
+每张表有多少行被优化器查询
+
+
+
+执行计划包含的信息
+
+![image-20210927211159798](images/image-20210927211159798.png)
+
+
+
+建表
+
+```sql
+ CREATE TABLE t1(id INT(10) AUTO_INCREMENT,content  VARCHAR(100) NULL ,  PRIMARY KEY (id));
+ CREATE TABLE t2(id INT(10) AUTO_INCREMENT,content  VARCHAR(100) NULL ,  PRIMARY KEY (id));
+ CREATE TABLE t3(id INT(10) AUTO_INCREMENT,content  VARCHAR(100) NULL ,  PRIMARY KEY (id));
+ CREATE TABLE t4(id INT(10) AUTO_INCREMENT,content  VARCHAR(100) NULL ,  PRIMARY KEY (id));
+ 
+ 
+ INSERT INTO t1(content) VALUES(CONCAT('t1_',FLOOR(1+RAND()*1000)));
+ 
+  INSERT INTO t2(content) VALUES(CONCAT('t2_',FLOOR(1+RAND()*1000)));
+  
+  INSERT INTO t3(content) VALUES(CONCAT('t3_',FLOOR(1+RAND()*1000)));
+    
+  INSERT INTO t4(content) VALUES(CONCAT('t4_',FLOOR(1+RAND()*1000)));
+
+```
+
+
+
+##### 4.2.1 id
+
+select查询的序列号,包含一组数字，表示查询中执行select子句或操作表的顺序.
+
+三种情况:
+
+- id相同，执行顺序由上至下
+
+```sql
+#此例中 先执行where 后的第一条语句 t1.id = t2.id 通过 t1.id 关联 t2.id 。 而  t2.id 的结果建立在 #t2.id=t3.id 的基础之上。
+mysql> explain select * from t1,t2,t3 where t1.id=t2.id and t2.id=t3.id;
+```
+
+![image-20210928155334702](images/image-20210928155334702.png)
+
+
+
+- id不同，如果是子查询，id的序号会递增，id值越大优先级越高，越先被执行
+
+```sql
+#id不同，如果是子查询，id的序号会递增，id值越大优先级越高，越先被执行
+explain select t1.id from t1 where t1.id in 
+	(select t2.id from t2 where t2.id in 
+     	(
+			select t3.id from t3
+    	)
+    );
+```
+
+![image-20210928160019491](images/image-20210928160019491.png)
+
+
+
+- id相同不同，同时存在
+
+```sql
+#
+explain select t2.* from t2 ,(select * from t3 where t3.content = '') s3 
+where s3.id=t2.id; 
+```
+
+![image-20210928160823507](images/image-20210928160823507.png)
+
+id如果相同，可以认为是一组，从上往下顺序执行；
+在所有组中，id值越大，优先级越高，越先执行
+
+衍生表 = derived2 --> derived + 2 （2 表示由 id =2 的查询衍生出来的表。type 肯定是 all ，因为衍生的表没有建立索引）
+
+
+
+##### 4.2.2 select_type
+
+![image-20210928161015016](images/image-20210928161015016.png)
+
+查询的类型，主要是用于区别:普通查询、联合查询、子查询等的复杂查询.
+
+- simple,简单的 select 查询,查询中**不包含子查询或者UNION**
+
+![image-20210928161137375](images/image-20210928161137375.png)
+
+
+
+- primary,查询中若**包含任何复杂的子部分**，最外层查询则被标记为Primary
+
+![image-20210928161218133](images/image-20210928161218133.png)
+
+
+
+- derived,在FROM列表中包含的**子查询被标记为DERIVED(衍生)**,MySQL会递归执行这些子查询, 把结果放在临时表里。
+
+![image-20210928161419853](images/image-20210928161419853.png)
+
+​        DERIVED 既查询通过子查询查出来的 临时表
+
+
+
+- subquery,在SELECT或WHERE列表中包含了子查询(单值)
+
+![image-20210928161543917](images/image-20210928161543917.png)
+
+
+
+- dependant subquery,在SELECT或WHERE列表中包含了子查询,子查询基于外层(多值)
+
+![image-20210928161657429](images/image-20210928161657429.png)
+
+dependent subquery 与 subquery 的区别
+依赖子查询 ： 子查询结果为多值
+子查询：查询结果为 单值 
+
+
+
+- uncacheable subquery ,无法被缓存的子查询
+
+![image-20210928162023768](images/image-20210928162023768.png)
+
+@@ 表示查的环境参数 。没办法缓存
+
+
+
+- union,若第二个SELECT出现在UNION之后，则被标记为UNION；若UNION包含在FROM子句的子查询中,外层SELECT将被标记为：DERIVED
+
+![image-20210928162126024](images/image-20210928162126024.png)
+
+UNION RESULT 两个语句执行完后的结果
+
+
+
+- union result,从UNION表获取结果的SELECT
+
+![image-20210928162313495](images/image-20210928162313495.png)
+
+
+
+##### 4.2.3 type
+
+显示这一行的数据是关于哪张表的
+
+
+
+##### 4.2.4 possible_keys
+
+显示可能应用在这张表中的索引，一个或多个。
+查询涉及到的字段上若存在索引，则该索引将被列出，但不一定被查询实际使用
+
+
+
+##### 4.2.5 key
+
+实际使用的索引。如果为NULL，则没有使用索引
+
+查询中若使用了**覆盖索引**，则该**索引和查询的select字段重叠**
+
+![image-20210928162652592](images/image-20210928162652592.png)
+
+对比下图两个 sql 语句。和 key 的值：当查询具体某一字段时，且那个字段有索引时，key 值会显示为索引。 
+
+
+
+##### 4.2.6 key_len
+
+- 表示索引中使用的字节数，可通过该列计算查询中使用的索引的长度。 
+
+![image-20210928162845335](images/image-20210928162845335.png)
+
+
+
+![image-20210928162852806](images/image-20210928162852806.png)
+
+总结一下：char(30) utf8 --> key_len = 30*3 +1  表示 utf8 格式需要  *3 (跟数据类型有关)   
+                 允许为 NULL  +1  ，不允许 +0
+                 动态类型 +2  (动态类型包括 : varchar , detail text() 截取字符窜)
+
+![image-20210928162935770](images/image-20210928162935770.png)
+
+第一组：key_len=deptno(int)+null + ename(varchar(20)*3+动态  =4+1+20*3+2= 67
+第二组：key_len=deptno(int)+null=4+1=5 
+
+
+
+- key_len字段能够帮你检查是否充分的利用上了索引
+
+![image-20210928163500269](images/image-20210928163500269.png)
+
+```sql
+RESET QUERY CACHE ;             
+ EXPLAIN     SELECT emp.deptno,COUNT(*) c FROM emp    
+ WHERE emp.ename LIKE 'a%'   AND emp.deptno=109
+ GROUP BY emp.deptno
+ HAVING c >2
+ ORDER BY c DESC
+```
+
+同样的使用了索引但是索引的涉及的字段却不同。
+
+![image-20210928163516004](images/image-20210928163516004.png)
+
+
+
+下图可知，充分的利用了索引的查询效率会更高。
+
+![image-20210928163630631](images/image-20210928163630631.png)
+
+
+
+##### 4.2.7 ref
+
+显示索引的哪一列被使用了，如果可能的话，是一个常数。哪些列或常量被用于查找索引列上的值
+
+![image-20210928163758477](images/image-20210928163758477.png)
+
+
+
+##### 4.2.8 rows
+
+rows列显示MySQL认为它执行查询时必须检查的行数。
+
+![image-20210928163910783](images/image-20210928163910783.png)
+
+
+
+##### 4.2.9 Extra*
+
+- **using filesort** ,说明mysql会对数据使用一个外部的索引排序，而不是按照表内的索引顺序进行读取。
+  MySQL中无法利用索引完成的排序操作称为“文件排序”.
+
+![image-20210928164341026](images/image-20210928164341026.png)
+
+优化后，不再出现filesort的情况：(给 ename 加上了索引)
+
+![image-20210928164409311](images/image-20210928164409311.png)
+
+查询中排序的字段，排序字段若通过索引去访问将大大提高排序速度
+
+分情况：当通过前面的查询语句 筛选大部分条件后，只剩下很少的数据。using filesort 性能影响不大。需要综合考虑.
+
+
+
+- **using temporary** ,使了用临时表保存中间结果,MySQL在对查询结果排序时使用临时表。常见于排序 order by 和分组查询 group by。
+
+![image-20210928164618029](images/image-20210928164618029.png)
+
+你他妈怎么优化的? 建立索引？  在 group by 的情况下发生的。
+ create index idx_deptno_ename on emp(deptno,ename) 后解决
+优化前存在的 using  temporary 和 using  filesort 不在，性能发生明显变化：
+
+![image-20210928164709461](images/image-20210928164709461.png)
+
+
+
+- **using index**,表示相应的select操作中使用了覆盖索引(Covering Index)，避免访问了表的数据行，效率不错！
+  - 如果同时出现using where，表明索引被用来执行索引键值的查找;
+  - 如果没有同时出现using where，表明索引只是用来读取数据而非利用索引执行查找。
+- using where,表明使用了where过滤
+- **using join buffer**,使用了连接缓存
+
+![image-20210928164828144](images/image-20210928164828144.png)
+
+出现在当两个连接时,驱动表(被连接的表,left join 左边的表。inner join 中数据少的表) 没有索引的情况下。
+给驱动表建立索引可解决此问题。且 type 将改变成 ref.
+
+- impossible where,where子句的值总是false，不能用来获取任何元组
+- select tables optimized away,在没有GROUPBY子句的情况下，基于索引优化MIN/MAX操作或者
+  对于MyISAM存储引擎优化COUNT(*)操作，不必等到执行阶段再进行计算，
+  查询执行计划生成的阶段即完成优化。
+
 
 
 ### 5. Mysql索引优化（查询优化）
