@@ -1,2 +1,6 @@
-# JavaMySQL
-MySQL基础+MySQL高级+MySQL面试+JDBC
+# MySQL学习进度表
+
+2021年10月4日---整理了之前的笔记
+
+
+
